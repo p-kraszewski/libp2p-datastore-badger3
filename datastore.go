@@ -9,12 +9,11 @@ import (
 	"sync"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v2"
-	options "github.com/dgraph-io/badger/v2/options"
+	"github.com/dgraph-io/badger/v3"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
 	logger "github.com/ipfs/go-log/v2"
-	goprocess "github.com/jbenet/goprocess"
+	"github.com/jbenet/goprocess"
 	"go.uber.org/zap"
 )
 
@@ -87,7 +86,7 @@ var DefaultOptions Options
 
 // WithGcDiscardRatio returns a new Options value with GcDiscardRatio set to the given value.
 //
-// Please refer to the Badger docs to see what this is for
+// # Please refer to the Badger docs to see what this is for
 //
 // Default value is 0.2
 func (opt Options) WithGcDiscardRatio(ratio float64) Options {
@@ -101,7 +100,7 @@ func (opt Options) WithGcDiscardRatio(ratio float64) Options {
 // GcInterval specifies the interval between garbage collection cycles. If zero,
 // the datastore will perform no automatic garbage collection.
 //
-// Default value is 15 minutes.
+// The default value is 15 minutes.
 func (opt Options) WithGcInterval(interval time.Duration) Options {
 	opt.GcInterval = interval
 	return opt
@@ -112,7 +111,7 @@ func (opt Options) WithGcInterval(interval time.Duration) Options {
 // GcSleep specifies the sleep time between rounds of a single garbage collection
 // cycle. If zero, the datastore will only perform one round of GC per GcInterval.
 //
-// Default value is 10 seconds.
+// The default value is 10 seconds.
 func (opt Options) WithGcSleep(sleep time.Duration) Options {
 	opt.GcSleep = sleep
 	return opt
@@ -124,7 +123,7 @@ func (opt Options) WithGcSleep(sleep time.Duration) Options {
 // the keys will no longer be retrievable and will be removed by garbage
 // collection.
 //
-// Default value is 0, which means no TTL.
+// The default value is 0, which means no TTL.
 func (opt Options) WithTTL(ttl time.Duration) Options {
 	opt.TTL = ttl
 	return opt
@@ -137,28 +136,10 @@ func init() {
 		GcSleep:        10 * time.Second,
 		Options:        badger.DefaultOptions(""),
 	}
-	// This is to optimize the database on close so it can be opened
+	// This is to optimize the database on close, so it can be opened
 	// read-only and efficiently queried. We don't do that and hanging on
 	// stop isn't nice.
 	DefaultOptions.Options.CompactL0OnClose = false
-
-	// The alternative is "crash on start and tell the user to fix it". This
-	// will truncate corrupt and unsynced data, which we don't guarantee to
-	// persist anyways.
-	DefaultOptions.Options.Truncate = true
-
-	// Uses less memory, is no slower when writing, and is faster when
-	// reading (in some tests).
-	DefaultOptions.Options.ValueLogLoadingMode = options.FileIO
-
-	// Explicitly set this to mmap. This doesn't use much memory anyways.
-	DefaultOptions.Options.TableLoadingMode = options.MemoryMap
-
-	// Reduce this from 64MiB to 16MiB. That means badger will hold on to
-	// 20MiB by default instead of 80MiB.
-	//
-	// This does not appear to have a significant performance hit.
-	DefaultOptions.Options.MaxTableSize = 16 << 20
 }
 
 var _ ds.Datastore = (*Datastore)(nil)
@@ -214,7 +195,7 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 		return nil, err
 	}
 
-	ds := &Datastore{
+	dataSrc := &Datastore{
 		DB:             kv,
 		closing:        make(chan struct{}),
 		gcDiscardRatio: gcDiscardRatio,
@@ -225,11 +206,11 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 	}
 
 	// Start the GC process if requested.
-	if ds.gcInterval > 0 {
-		go ds.periodicGC()
+	if dataSrc.gcInterval > 0 {
+		go dataSrc.periodicGC()
 	}
 
-	return ds, nil
+	return dataSrc, nil
 }
 
 // Keep scheduling GC's AFTER `gcInterval` has passed since the previous GC
@@ -243,7 +224,7 @@ func (d *Datastore) periodicGC() {
 			switch err := d.gcOnce(); err {
 			case badger.ErrNoRewrite, badger.ErrRejected:
 				// No rewrite means we've fully garbage collected.
-				// Rejected means someone else is running a GC
+				// Rejected means someone else is running a GC,
 				// or we're closing.
 				gcTimeout.Reset(d.gcInterval)
 			case nil:
