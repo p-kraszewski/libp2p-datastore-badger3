@@ -1,4 +1,4 @@
-module github.com/p-kraszewski/libp2p-datastore-badger3
+module github.com/p-kraszewski/libp2p-datastore-badger3/v1
 
 require (
 	github.com/dgraph-io/badger/v3 v3.2103.4
